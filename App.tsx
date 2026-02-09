@@ -67,113 +67,108 @@ const App: React.FC = () => {
   const base64 = event.target?.result as string;
 
   try {
-    const parsed = await parseScoresFromFile(base64, file.type);
-    console.log("OCR parsed:", parsed);
+const parsed = await parseScoresFromFile(base64, file.type);
 
-    if (!parsed) {
-      alert("파일에서 점수를 찾지 못했습니다.");
-      return;
-    }
+if (parsed) {
+  setScores(prev => {
+    const next = JSON.parse(JSON.stringify(prev));
+    const factorKeys: (keyof PersonalityScores)[] = ["N", "E", "O", "A", "C"];
 
-    setScores((prev) => {
-      const next = JSON.parse(JSON.stringify(prev));
-      const factorKeys: (keyof PersonalityScores)[] = ["N", "E", "O", "A", "C"];
+    // ✅ 서버 응답에서 factors 꺼내기 (현재 F12 화면 기준 parsed.factors)
+    const rawFactors: Record<string, any> =
+      parsed?.factors ??
+      parsed?.main_factors ??
+      parsed?.norm_factors ??
+      {};
 
-      // ✅ 서버 응답에서 factors 꺼내기
-      const rawFactors: Record<string, any> =
-        parsed?.factors ??
-        parsed?.main_factors ??
-        parsed?.norm_factors ??
-        {};
-
-      // ✅ "심리적 민감성 (N)" 같은 키를 N/E/O/A/C로 재매핑
-      const byLetter: Record<string, any> = {};
-      Object.entries(rawFactors).forEach(([label, obj]) => {
-        const m = String(label).match(/\((N|E|O|A|C)\)/i);
-        if (m) byLetter[m[1].toUpperCase()] = obj;
-      });
-
-      // ✅ 하위요인 유의어
-      const alias: Record<string, string[]> = {
-        "활동": ["활력"],
-        "활력": ["활동"],
-        "자극": ["열정"],
-        "열정": ["자극"],
-        "겸손": ["겸양"],
-        "겸양": ["겸손"],
-        "유능감": ["자신"],
-        "자신": ["유능감"],
-        "체계": ["질서"],
-        "질서": ["체계"],
-        "절제": ["자율"],
-        "자율": ["절제"],
-        "신중": ["숙고"],
-        "숙고": ["신중"],
-        "불안": ["걱정"],
-        "걱정": ["불안"],
-      };
-
-      const clamp = (n: any) =>
-        typeof n === "number" ? Math.max(0, Math.min(100, n)) : null;
-
-      // ✅ 공백/괄호 제거해서 비교 (이거 중요)
-      const norm = (s: string) =>
-        String(s || "").replace(/\s+/g, "").replace(/[()]/g, "").trim();
-
-      factorKeys.forEach((k) => {
-        const source = byLetter[k];
-        if (!source || !next[k]) return;
-
-        // ✅ total / score / t_score 변형 대응
-const total = clamp(
-  source.total ??
-  source.score ??
-  source.t_score ??
-  source["총점"]
-);
-        if (total !== null) next[k].score = total;
-
-        // ✅ sub_scales 대응
-        const sub =
-          source.sub_scales ??
-          source.subScales ??
-          source.subFactors ??
-          source["하위요인"] ??
-          null;
-
-        if (sub && typeof sub === "object") {
-          const subObj = sub as Record<string, any>;
-          const keys = Object.keys(subObj);
-
-          next[k].subFactors = next[k].subFactors.map((sf: any) => {
-            const name = sf.name;
-
-            // 1) 완전 일치
-            if (typeof subObj[name] === "number") {
-              return { ...sf, score: clamp(subObj[name]) ?? sf.score };
-            }
-
-            // 2) 유의어
-            for (const a of alias[name] || []) {
-              if (typeof subObj[a] === "number") {
-                return { ...sf, score: clamp(subObj[a]) ?? sf.score };
-              }
-            }
-
-            // 3) 정규화 비교
-            const hit = keys.find((key) => norm(key) === norm(name));
-            const val = hit ? subObj[hit] : undefined;
-
-            return { ...sf, score: clamp(val) ?? sf.score };
-          });
-        }
-      });
-
-      return next;
+    // ✅ "심리적 민감성 (N)" 같은 키를 N/E/O/A/C로 매핑
+    const byLetter: Record<string, any> = {};
+    Object.entries(rawFactors).forEach(([label, obj]) => {
+      const m = String(label).match(/\((N|E|O|A|C)\)/i);
+      if (m) byLetter[m[1].toUpperCase()] = obj;
     });
 
-    alert("파일 분석이 완료되었습니다.");
-  } catch (err) {
+    // ✅ 하위요인 유의어 매핑(리포트 표기가 달라질 때 대비)
+    const alias: Record<string, string[]> = {
+      "활동": ["활력"],
+      "활력": ["활동"],
+      "자극": ["열정"],
+      "열정": ["자극"],
+      "겸손": ["겸양"],
+      "겸양": ["겸손"],
+      "유능감": ["자신"],
+      "자신": ["유능감"],
+      "체계": ["질서"],
+      "질서": ["체계"],
+      "절제": ["자율"],
+      "자율": ["절제"],
+      "신중": ["숙고"],
+      "숙고": ["신중"],
+      "불안": ["걱정"],
+      "걱정": ["불안"],
+    };
+
+    const clamp = (n: any) =>
+      typeof n === "number" ? Math.max(0, Math.min(100, n)) : null;
+
+    const norm = (s: string) =>
+      String(s || "")
+        .replace(/\s+/g, "")
+        .replace(/[()]/g, "")
+        .trim();
+
+    factorKeys.forEach(k => {
+      const source = byLetter[k];
+      if (!source || !next[k]) return;
+
+      // ✅ 총점 키가 total/score가 아니라 "총점"일 수 있음
+      const total = clamp(
+        source.total ?? source.score ?? source.t_score ?? source["총점"]
+      );
+      if (total !== null) next[k].score = total;
+
+      // ✅ 하위요인 키가 sub_scales가 아니라 "하위요인"일 수 있음
+      const sub =
+        source.sub_scales ??
+        source.subScales ??
+        source.subFactors ??
+        source["하위요인"] ??
+        null;
+
+      if (sub && typeof sub === "object") {
+        const subObj = sub as Record<string, any>;
+        const keys = Object.keys(subObj);
+
+        next[k].subFactors = next[k].subFactors.map((sf: any) => {
+          const name = sf.name;
+
+          // 1) 완전 일치
+          if (typeof subObj[name] === "number") {
+            return { ...sf, score: clamp(subObj[name]) ?? sf.score };
+          }
+
+          // 2) 유의어
+          for (const a of alias[name] || []) {
+            if (typeof subObj[a] === "number") {
+              return { ...sf, score: clamp(subObj[a]) ?? sf.score };
+            }
+          }
+
+          // 3) 정규화 비교(공백/괄호 제거)
+          const hit = keys.find(key => norm(key) === norm(name));
+          const val = hit ? subObj[hit] : undefined;
+
+          return { ...sf, score: clamp(val) ?? sf.score };
+        });
+      }
+    });
+
+    return next;
+  });
+
+  alert("파일 분석이 완료되었습니다.");
+}
+ catch (err) {
     console.error(err);
     alert("파일 분석 중 오류가 발생했습니다.");
   } finally {
