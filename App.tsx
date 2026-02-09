@@ -70,20 +70,35 @@ const App: React.FC = () => {
         if (parsed) {
           setScores(prev => {
             const next = JSON.parse(JSON.stringify(prev));
-            const factorKeys: (keyof PersonalityScores)[] = ['N', 'E', 'O', 'A', 'C'];
-            factorKeys.forEach(k => {
-              const source = parsed[k];
-              if (source && next[k]) {
-                if (typeof source.score === 'number') next[k].score = Math.max(0, Math.min(100, source.score));
-                if (Array.isArray(source.subFactors)) {
-                  next[k].subFactors = next[k].subFactors.map((sf: any, i: number) => {
-                    const item = source.subFactors[i];
-                    const val = (typeof item === 'number') ? item : (item?.score);
-                    return { ...sf, score: (typeof val === 'number') ? Math.max(0, Math.min(100, val)) : sf.score };
-                  });
-                }
-              }
-            });
+const factorKeys: (keyof PersonalityScores)[] = ['N', 'E', 'O', 'A', 'C'];
+
+factorKeys.forEach(k => {
+  const source = parsed?.norm_factors?.[k];   // ✅ 여기 수정
+
+  if (source && next[k]) {
+
+    // 총점
+    if (typeof source.score === 'number') {
+      next[k].score = Math.max(0, Math.min(100, source.score));
+    }
+
+    // 하위요인 (객체 → 배열 변환)
+    if (source.sub_scales && typeof source.sub_scales === 'object') {
+      const values = Object.values(source.sub_scales) as number[];
+
+      next[k].subFactors = next[k].subFactors.map((sf: any, i: number) => {
+        const val = values[i];
+        return {
+          ...sf,
+          score: typeof val === 'number'
+            ? Math.max(0, Math.min(100, val))
+            : sf.score
+        };
+      });
+    }
+  }
+});
+
             return next;
           });
           alert("파일 분석이 완료되었습니다.");
