@@ -68,30 +68,33 @@ const App: React.FC = () => {
       try {
         const parsed = await parseScoresFromFile(base64, file.type);
 if (parsed) {
+if (parsed) {
   setScores(prev => {
     const next = JSON.parse(JSON.stringify(prev));
     const factorKeys: (keyof PersonalityScores)[] = ["N", "E", "O", "A", "C"];
 
-    // ✅ 서버 응답이 main_factors / norm_factors 둘 다 대응
-    const factors =
+    // 1) 서버 응답에서 factors 꺼내기 (현재 화면상 parsed.factors 구조)
+    const rawFactors: Record<string, any> =
+      parsed?.factors ??
       parsed?.main_factors ??
       parsed?.norm_factors ??
-      parsed?.factors ??
       {};
 
-    // ✅ 하위요인 이름 유의어(리포트마다 달라지는 표현)
-    const alias: Record<string, string[]> = {
-      "불안": ["걱정"],
-      "걱정": ["불안"],
+    // 2) "심리적 민감성 (N)" 같은 키를 N/E/O/A/C로 재매핑
+    const byLetter: Record<string, any> = {};
+    Object.entries(rawFactors).forEach(([label, obj]) => {
+      const m = String(label).match(/\((N|E|O|A|C)\)/i);
+      if (m) byLetter[m[1].toUpperCase()] = obj;
+    });
 
+    // 3) 하위요인 유의어(필요한 것만)
+    const alias: Record<string, string[]> = {
       "활동": ["활력"],
       "활력": ["활동"],
       "자극": ["열정"],
       "열정": ["자극"],
-
       "겸손": ["겸양"],
       "겸양": ["겸손"],
-
       "유능감": ["자신"],
       "자신": ["유능감"],
       "체계": ["질서"],
@@ -100,27 +103,30 @@ if (parsed) {
       "자율": ["절제"],
       "신중": ["숙고"],
       "숙고": ["신중"],
+      "불안": ["걱정"],
+      "걱정": ["불안"],
     };
+
+    const clamp = (n: any) =>
+      typeof n === "number" ? Math.max(0, Math.min(100, n)) : null;
 
     const norm = (s: string) =>
       String(s || "").replace(/\s+/g, "").replace(/[()]/g, "").trim();
 
     factorKeys.forEach(k => {
-      const source = factors?.[k];
+      const source = byLetter[k];
       if (!source || !next[k]) return;
 
-      // ✅ 총점 필드명 변형 대비
-      const total =
-        (typeof source.score === "number" && source.score) ||
-        (typeof source.t_score === "number" && source.t_score) ||
-        (typeof source.total === "number" && source.total);
+      // ✅ total / score / t_score 등 변형 대응
+      const total = clamp(source.total ?? source.score ?? source.t_score);
+      if (total !== null) next[k].score = total;
 
-      if (typeof total === "number") {
-        next[k].score = Math.max(0, Math.min(100, total));
-      }
-
-      // ✅ 하위요인: sub_scales (객체) 기준
-      const sub = source.sub_scales ?? source.subScales ?? source.subFactors ?? null;
+      // ✅ sub_scales / subScales / subFactors 대응
+      const sub =
+        source.sub_scales ??
+        source.subScales ??
+        source.subFactors ??
+        null;
 
       if (sub && typeof sub === "object") {
         const subObj = sub as Record<string, any>;
@@ -131,23 +137,23 @@ if (parsed) {
 
           // 1) 완전 일치
           if (typeof subObj[name] === "number") {
-            return { ...sf, score: Math.max(0, Math.min(100, subObj[name])) };
+            return { ...sf, score: clamp(subObj[name]) ?? sf.score };
           }
 
           // 2) 유의어
           for (const a of alias[name] || []) {
             if (typeof subObj[a] === "number") {
-              return { ...sf, score: Math.max(0, Math.min(100, subObj[a])) };
+              return { ...sf, score: clamp(subObj[a]) ?? sf.score };
             }
           }
 
           // 3) 정규화 비교
-          const hitKey = keys.find(key => norm(key) === norm(name));
-          const val = hitKey ? subObj[hitKey] : undefined;
+          const hit = keys.find(key => norm(key) === norm(name));
+          const val = hit ? subObj[hit] : undefined;
 
           return {
             ...sf,
-            score: typeof val === "number" ? Math.max(0, Math.min(100, val)) : sf.score,
+            score: clamp(val) ?? sf.score,
           };
         });
       }
