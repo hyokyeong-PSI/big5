@@ -125,7 +125,12 @@ const App: React.FC = () => {
         if (!source || !next[k]) return;
 
         // ✅ total / score / t_score 변형 대응
-        const total = clamp(source.total ?? source.score ?? source.t_score);
+const total = clamp(
+  source.total ??
+  source.score ??
+  source.t_score ??
+  source["총점"]
+);
         if (total !== null) next[k].score = total;
 
         // ✅ sub_scales 대응
@@ -133,6 +138,7 @@ const App: React.FC = () => {
           source.sub_scales ??
           source.subScales ??
           source.subFactors ??
+          source["하위요인"] ??
           null;
 
         if (sub && typeof sub === "object") {
