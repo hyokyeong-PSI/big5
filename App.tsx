@@ -67,43 +67,98 @@ const App: React.FC = () => {
       const base64 = event.target?.result as string;
       try {
         const parsed = await parseScoresFromFile(base64, file.type);
-        if (parsed) {
-          setScores(prev => {
-            const next = JSON.parse(JSON.stringify(prev));
-const factorKeys: (keyof PersonalityScores)[] = ['N', 'E', 'O', 'A', 'C'];
+if (parsed) {
+  setScores(prev => {
+    const next = JSON.parse(JSON.stringify(prev));
+    const factorKeys: (keyof PersonalityScores)[] = ["N", "E", "O", "A", "C"];
 
-factorKeys.forEach(k => {
-  const source = parsed?.norm_factors?.[k];   // ✅ 여기 수정
+    // ✅ 서버 응답이 main_factors / norm_factors 둘 다 대응
+    const factors =
+      parsed?.main_factors ??
+      parsed?.norm_factors ??
+      parsed?.factors ??
+      {};
 
-  if (source && next[k]) {
+    // ✅ 하위요인 이름 유의어(리포트마다 달라지는 표현)
+    const alias: Record<string, string[]> = {
+      "불안": ["걱정"],
+      "걱정": ["불안"],
 
-    // 총점
-    if (typeof source.score === 'number') {
-      next[k].score = Math.max(0, Math.min(100, source.score));
-    }
+      "활동": ["활력"],
+      "활력": ["활동"],
+      "자극": ["열정"],
+      "열정": ["자극"],
 
-    // 하위요인 (객체 → 배열 변환)
-   if (source.sub_scales && typeof source.sub_scales === "object") {
-  const sub = source.sub_scales;
+      "겸손": ["겸양"],
+      "겸양": ["겸손"],
 
-  next[k].subFactors = next[k].subFactors.map((sf: any) => {
-    const val = sub[sf.name];  // ← 이름 기준 매칭
-
-    return {
-      ...sf,
-      score: typeof val === "number"
-        ? Math.max(0, Math.min(100, val))
-        : sf.score
+      "유능감": ["자신"],
+      "자신": ["유능감"],
+      "체계": ["질서"],
+      "질서": ["체계"],
+      "절제": ["자율"],
+      "자율": ["절제"],
+      "신중": ["숙고"],
+      "숙고": ["신중"],
     };
-  });
-}
-  }
-});
 
-            return next;
-          });
-          alert("파일 분석이 완료되었습니다.");
-        }
+    const norm = (s: string) =>
+      String(s || "").replace(/\s+/g, "").replace(/[()]/g, "").trim();
+
+    factorKeys.forEach(k => {
+      const source = factors?.[k];
+      if (!source || !next[k]) return;
+
+      // ✅ 총점 필드명 변형 대비
+      const total =
+        (typeof source.score === "number" && source.score) ||
+        (typeof source.t_score === "number" && source.t_score) ||
+        (typeof source.total === "number" && source.total);
+
+      if (typeof total === "number") {
+        next[k].score = Math.max(0, Math.min(100, total));
+      }
+
+      // ✅ 하위요인: sub_scales (객체) 기준
+      const sub = source.sub_scales ?? source.subScales ?? source.subFactors ?? null;
+
+      if (sub && typeof sub === "object") {
+        const subObj = sub as Record<string, any>;
+        const keys = Object.keys(subObj);
+
+        next[k].subFactors = next[k].subFactors.map((sf: any) => {
+          const name = sf.name;
+
+          // 1) 완전 일치
+          if (typeof subObj[name] === "number") {
+            return { ...sf, score: Math.max(0, Math.min(100, subObj[name])) };
+          }
+
+          // 2) 유의어
+          for (const a of alias[name] || []) {
+            if (typeof subObj[a] === "number") {
+              return { ...sf, score: Math.max(0, Math.min(100, subObj[a])) };
+            }
+          }
+
+          // 3) 정규화 비교
+          const hitKey = keys.find(key => norm(key) === norm(name));
+          const val = hitKey ? subObj[hitKey] : undefined;
+
+          return {
+            ...sf,
+            score: typeof val === "number" ? Math.max(0, Math.min(100, val)) : sf.score,
+          };
+        });
+      }
+    });
+
+    return next;
+  });
+
+  alert("파일 분석이 완료되었습니다.");
+}
+
       } catch (err) {
         console.error(err);
         alert("파일 분석 중 오류가 발생했습니다.");
