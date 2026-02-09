@@ -97,11 +97,25 @@ ${JSON.stringify(scores ?? {}, null, 2)}
         },
       });
 
-      const raw = response.text || "{}";
-      try {
-        return res.status(200).json(JSON.parse(raw));
-      } catch {
-        return res.status(500).json({ error: "Invalid JSON from model", raw });
+const raw = response.text || "{}";
+
+try {
+  const cleaned = raw.trim()
+    .replace(/^```json/, "")
+    .replace(/^```/, "")
+    .replace(/```$/, "")
+    .trim();
+
+  const parsed = JSON.parse(cleaned);
+  return res.status(200).json(parsed);
+} catch (err) {
+  console.error("JSON PARSE ERROR:", raw);
+  return res.status(500).json({
+    error: "Model returned invalid JSON",
+    raw
+  });
+}
+
       }
     }
 
