@@ -83,19 +83,20 @@ factorKeys.forEach(k => {
     }
 
     // 하위요인 (객체 → 배열 변환)
-    if (source.sub_scales && typeof source.sub_scales === 'object') {
-      const values = Object.values(source.sub_scales) as number[];
+   if (source.sub_scales && typeof source.sub_scales === "object") {
+  const sub = source.sub_scales;
 
-      next[k].subFactors = next[k].subFactors.map((sf: any, i: number) => {
-        const val = values[i];
-        return {
-          ...sf,
-          score: typeof val === 'number'
-            ? Math.max(0, Math.min(100, val))
-            : sf.score
-        };
-      });
-    }
+  next[k].subFactors = next[k].subFactors.map((sf: any) => {
+    const val = sub[sf.name];  // ← 이름 기준 매칭
+
+    return {
+      ...sf,
+      score: typeof val === "number"
+        ? Math.max(0, Math.min(100, val))
+        : sf.score
+    };
+  });
+}
   }
 });
 
