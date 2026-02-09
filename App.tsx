@@ -64,114 +64,117 @@ const App: React.FC = () => {
       setUploadLoading(false);
     };
     reader.onload = async (event) => {
-      const base64 = event.target?.result as string;
-      try {
-        const parsed = await parseScoresFromFile(base64, file.type);
-if (parsed) {
-if (parsed) {
-  setScores(prev => {
-    const next = JSON.parse(JSON.stringify(prev));
-    const factorKeys: (keyof PersonalityScores)[] = ["N", "E", "O", "A", "C"];
+  const base64 = event.target?.result as string;
 
-    // 1) 서버 응답에서 factors 꺼내기 (현재 화면상 parsed.factors 구조)
-    const rawFactors: Record<string, any> =
-      parsed?.factors ??
-      parsed?.main_factors ??
-      parsed?.norm_factors ??
-      {};
+  try {
+    const parsed = await parseScoresFromFile(base64, file.type);
+    console.log("OCR parsed:", parsed);
 
-    // 2) "심리적 민감성 (N)" 같은 키를 N/E/O/A/C로 재매핑
-    const byLetter: Record<string, any> = {};
-    Object.entries(rawFactors).forEach(([label, obj]) => {
-      const m = String(label).match(/\((N|E|O|A|C)\)/i);
-      if (m) byLetter[m[1].toUpperCase()] = obj;
-    });
+    if (!parsed) {
+      alert("파일에서 점수를 찾지 못했습니다.");
+      return;
+    }
 
-    // 3) 하위요인 유의어(필요한 것만)
-    const alias: Record<string, string[]> = {
-      "활동": ["활력"],
-      "활력": ["활동"],
-      "자극": ["열정"],
-      "열정": ["자극"],
-      "겸손": ["겸양"],
-      "겸양": ["겸손"],
-      "유능감": ["자신"],
-      "자신": ["유능감"],
-      "체계": ["질서"],
-      "질서": ["체계"],
-      "절제": ["자율"],
-      "자율": ["절제"],
-      "신중": ["숙고"],
-      "숙고": ["신중"],
-      "불안": ["걱정"],
-      "걱정": ["불안"],
-    };
+    setScores((prev) => {
+      const next = JSON.parse(JSON.stringify(prev));
+      const factorKeys: (keyof PersonalityScores)[] = ["N", "E", "O", "A", "C"];
 
-    const clamp = (n: any) =>
-      typeof n === "number" ? Math.max(0, Math.min(100, n)) : null;
+      // ✅ 서버 응답에서 factors 꺼내기
+      const rawFactors: Record<string, any> =
+        parsed?.factors ??
+        parsed?.main_factors ??
+        parsed?.norm_factors ??
+        {};
 
-    const norm = (s: string) =>
-      String(s || "").replace(/\s+/g, "").replace(/[()]/g, "").trim();
+      // ✅ "심리적 민감성 (N)" 같은 키를 N/E/O/A/C로 재매핑
+      const byLetter: Record<string, any> = {};
+      Object.entries(rawFactors).forEach(([label, obj]) => {
+        const m = String(label).match(/\((N|E|O|A|C)\)/i);
+        if (m) byLetter[m[1].toUpperCase()] = obj;
+      });
 
-    factorKeys.forEach(k => {
-      const source = byLetter[k];
-      if (!source || !next[k]) return;
+      // ✅ 하위요인 유의어
+      const alias: Record<string, string[]> = {
+        "활동": ["활력"],
+        "활력": ["활동"],
+        "자극": ["열정"],
+        "열정": ["자극"],
+        "겸손": ["겸양"],
+        "겸양": ["겸손"],
+        "유능감": ["자신"],
+        "자신": ["유능감"],
+        "체계": ["질서"],
+        "질서": ["체계"],
+        "절제": ["자율"],
+        "자율": ["절제"],
+        "신중": ["숙고"],
+        "숙고": ["신중"],
+        "불안": ["걱정"],
+        "걱정": ["불안"],
+      };
 
-      // ✅ total / score / t_score 등 변형 대응
-      const total = clamp(source.total ?? source.score ?? source.t_score);
-      if (total !== null) next[k].score = total;
+      const clamp = (n: any) =>
+        typeof n === "number" ? Math.max(0, Math.min(100, n)) : null;
 
-      // ✅ sub_scales / subScales / subFactors 대응
-      const sub =
-        source.sub_scales ??
-        source.subScales ??
-        source.subFactors ??
-        null;
+      // ✅ 공백/괄호 제거해서 비교 (이거 중요)
+      const norm = (s: string) =>
+        String(s || "").replace(/\s+/g, "").replace(/[()]/g, "").trim();
 
-      if (sub && typeof sub === "object") {
-        const subObj = sub as Record<string, any>;
-        const keys = Object.keys(subObj);
+      factorKeys.forEach((k) => {
+        const source = byLetter[k];
+        if (!source || !next[k]) return;
 
-        next[k].subFactors = next[k].subFactors.map((sf: any) => {
-          const name = sf.name;
+        // ✅ total / score / t_score 변형 대응
+        const total = clamp(source.total ?? source.score ?? source.t_score);
+        if (total !== null) next[k].score = total;
 
-          // 1) 완전 일치
-          if (typeof subObj[name] === "number") {
-            return { ...sf, score: clamp(subObj[name]) ?? sf.score };
-          }
+        // ✅ sub_scales 대응
+        const sub =
+          source.sub_scales ??
+          source.subScales ??
+          source.subFactors ??
+          null;
 
-          // 2) 유의어
-          for (const a of alias[name] || []) {
-            if (typeof subObj[a] === "number") {
-              return { ...sf, score: clamp(subObj[a]) ?? sf.score };
+        if (sub && typeof sub === "object") {
+          const subObj = sub as Record<string, any>;
+          const keys = Object.keys(subObj);
+
+          next[k].subFactors = next[k].subFactors.map((sf: any) => {
+            const name = sf.name;
+
+            // 1) 완전 일치
+            if (typeof subObj[name] === "number") {
+              return { ...sf, score: clamp(subObj[name]) ?? sf.score };
             }
-          }
 
-          // 3) 정규화 비교
-          const hit = keys.find(key => norm(key) === norm(name));
-          const val = hit ? subObj[hit] : undefined;
+            // 2) 유의어
+            for (const a of alias[name] || []) {
+              if (typeof subObj[a] === "number") {
+                return { ...sf, score: clamp(subObj[a]) ?? sf.score };
+              }
+            }
 
-          return {
-            ...sf,
-            score: clamp(val) ?? sf.score,
-          };
-        });
-      }
+            // 3) 정규화 비교
+            const hit = keys.find((key) => norm(key) === norm(name));
+            const val = hit ? subObj[hit] : undefined;
+
+            return { ...sf, score: clamp(val) ?? sf.score };
+          });
+        }
+      });
+
+      return next;
     });
 
-    return next;
-  });
+    alert("파일 분석이 완료되었습니다.");
+  } catch (err) {
+    console.error(err);
+    alert("파일 분석 중 오류가 발생했습니다.");
+  } finally {
+    setUploadLoading(false);
+  }
+};
 
-  alert("파일 분석이 완료되었습니다.");
-}
-
-      } catch (err) {
-        console.error(err);
-        alert("파일 분석 중 오류가 발생했습니다.");
-      } finally {
-        setUploadLoading(false);
-      }
-    };
     reader.readAsDataURL(file);
   };
 
