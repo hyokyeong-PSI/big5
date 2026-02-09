@@ -5,9 +5,24 @@ import { GoogleGenAI, Type } from "@google/genai";
 function readBody(req: VercelRequest) {
   if (!req.body) return {};
   if (typeof req.body === "string") {
-    try { return JSON.parse(req.body); } catch { return {}; }
+    try {
+      return JSON.parse(req.body);
+    } catch {
+      return {};
+    }
   }
   return req.body as any;
+}
+
+function safeJsonFromModel(raw: string) {
+  const cleaned = (raw || "")
+    .trim()
+    .replace(/^```json/i, "")
+    .replace(/^```/i, "")
+    .replace(/```$/i, "")
+    .trim();
+
+  return JSON.parse(cleaned || "{}");
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -22,6 +37,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const ai = new GoogleGenAI({ apiKey });
 
+    // =========================
+    // 1) 해석 (interpret)
+    // =========================
     if (kind === "interpret") {
       const prompt = `
 당신은 세계적인 성격 심리학 전문가이자 비즈니스 코치입니다.
@@ -42,7 +60,6 @@ ${JSON.stringify(scores ?? {}, null, 2)}
 `;
 
       const response = await ai.models.generateContent({
-        // 안정성 우선: preview 대신 1.5-pro 권장
         model: "gemini-1.5-pro",
         contents: prompt,
         config: {
@@ -97,35 +114,38 @@ ${JSON.stringify(scores ?? {}, null, 2)}
         },
       });
 
-const raw = response.text || "{}";
-
-try {
-  const cleaned = raw.trim()
-    .replace(/^```json/, "")
-    .replace(/^```/, "")
-    .replace(/```$/, "")
-    .trim();
-
-  const parsed = JSON.parse(cleaned);
-  return res.status(200).json(parsed);
-} catch (err) {
-  console.error("JSON PARSE ERROR:", raw);
-  return res.status(500).json({
-    error: "Model returned invalid JSON",
-    raw
-  });
-}
-
+      const raw = response.text || "";
+      try {
+        return res.status(200).json(safeJsonFromModel(raw));
+      } catch {
+        return res.status(500).json({ error: "Model returned invalid JSON", raw });
       }
     }
 
+    // =========================
+    // 2) OCR (ocr)
+    // =========================
     if (kind === "ocr") {
       const prompt = `
 첨부된 NEO-PI-3 성격검사 리포트 이미지/PDF에서 'T점수(T-Score)' 데이터를 추출하십시오.
 오직 JSON 데이터만 반환하십시오.
 `;
 
-      const data = (base64Data || "").includes(",") ? (base64Data || "").split(",")[1] : base64Data;
+      // ✅ 입력 검증 (이게 없으면 FUNCTION_INVOCATION_FAILED가 쉽게 납니다)
+      const rawBase64 = typeof base64Data === "string" ? base64Data : "";
+      const data = rawBase64.includes(",") ? rawBase64.split(",")[1] : rawBase64;
+
+      if (!mimeType || typeof mimeType !== "string") {
+        return res.status(400).json({ error: "Missing mimeType" });
+      }
+      if (!data || data.length < 2000) {
+        return res.status(400).json({ error: "Missing/too-small base64Data", len: data?.length ?? 0 });
+      }
+
+      // ✅ PDF는 용량이 커서 서버리스에서 불안정할 수 있어 임시 가드 (원하면 조정)
+      if (mimeType === "application/pdf" && data.length > 2_500_000) {
+        return res.status(413).json({ error: "PDF too large. Upload an image or a smaller PDF." });
+      }
 
       const response = await ai.models.generateContent({
         model: "gemini-1.5-flash",
@@ -147,9 +167,9 @@ try {
         },
       });
 
-      const raw = response.text || "{}";
+      const raw = response.text || "";
       try {
-        return res.status(200).json(JSON.parse(raw));
+        return res.status(200).json(safeJsonFromModel(raw));
       } catch {
         return res.status(500).json({ error: "Invalid JSON from model", raw });
       }
@@ -157,6 +177,7 @@ try {
 
     return res.status(400).json({ error: "Unknown kind" });
   } catch (e: any) {
+    // ✅ 이 catch로 떨어지면 최소한 detail이 찍혀야 합니다.
     return res.status(500).json({ error: "Gemini request failed", detail: e?.message ?? String(e) });
   }
 }
