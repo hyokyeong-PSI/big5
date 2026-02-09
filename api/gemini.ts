@@ -60,7 +60,7 @@ ${JSON.stringify(scores ?? {}, null, 2)}
 `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-1.5-pro",
+        model: "gemini-3-pro-preview",
         contents: prompt,
         config: {
           systemInstruction:
@@ -148,7 +148,7 @@ ${JSON.stringify(scores ?? {}, null, 2)}
       }
 
       const response = await ai.models.generateContent({
-        model: "gemini-1.5-pro",
+        model: "gemini-3-flash-preview",
         contents: {
           parts: [{ inlineData: { mimeType, data } }, { text: prompt }],
         },
@@ -176,8 +176,12 @@ ${JSON.stringify(scores ?? {}, null, 2)}
     }
 
     return res.status(400).json({ error: "Unknown kind" });
-  } catch (e: any) {
-    // ✅ 이 catch로 떨어지면 최소한 detail이 찍혀야 합니다.
-    return res.status(500).json({ error: "Gemini request failed", detail: e?.message ?? String(e) });
-  }
+} catch (e: any) {
+  return res.status(500).json({
+    error: "Gemini request failed",
+    detail: e?.message ?? String(e),
+    name: e?.name
+  });
+}
+
 }
