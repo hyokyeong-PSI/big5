@@ -1,8 +1,0 @@
-
-{
-  "name": "NEO-PI-3 성격진단 해석 전문가 시스템",
-  "description": "NEO-PI-3 Big5 성격검사 결과를 분석하여 심리학 전문가의 시선으로 상세한 해석과 코칭 리포트를 제공합니다.",
-  "requestFramePermissions": [
-    "camera"
-  ]
-}
